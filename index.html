@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Trajectory Annotation Tool with FPS Support</title>
+  <title>Trajectory Annotation Tool - ComfyUI Video Generation</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     body {
@@ -14,29 +14,67 @@
       color: #222;
     }
     .container {
-      max-width: 1100px;
+      max-width: 1200px;
       margin: 40px auto;
       background: #fff;
       border-radius: 16px;
       box-shadow: 0 4px 24px rgba(0,0,0,0.08);
       padding: 32px 32px 24px 32px;
       display: flex;
+      flex-direction: column;
       gap: 32px;
-      flex-wrap: wrap;
+    }
+    .main-content {
+      display: flex;
+      gap: 32px;
+      align-items: flex-start;
     }
     .left-panel {
-      flex: 1 1 520px;
-      min-width: 340px;
+      flex: 1 1 60%;
+      min-width: 400px;
       display: flex;
       flex-direction: column;
-      align-items: center;
     }
     .right-panel {
-      flex: 1 1 340px;
-      min-width: 320px;
+      flex: 1 1 40%;
+      min-width: 350px;
       display: flex;
       flex-direction: column;
       gap: 16px;
+    }
+    .config-section {
+      width: 100%;
+      margin-bottom: 24px;
+    }
+    .config-content {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      flex-wrap: wrap;
+      padding: 20px;
+      background: #f8fafc;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+    }
+    .config-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .config-group label {
+      font-weight: 500;
+      color: #374151;
+      white-space: nowrap;
+    }
+    .config-group input, .config-group select {
+      padding: 6px 8px;
+      border-radius: 5px;
+      border: 1px solid #d1d5db;
+      font-size: 14px;
+    }
+    .config-group input[type="number"] {
+      width: 70px;
     }
     #canvas {
       border: 2px solid #e0e0e0;
@@ -47,13 +85,114 @@
       max-width: 100%;
       height: auto;
       transition: box-shadow 0.2s;
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
     }
     .controls {
       display: flex;
       gap: 12px;
-      margin-bottom: 8px;
       flex-wrap: wrap;
+      align-items: center;
+    }
+    .drawing-section {
+      width: 100%;
+    }
+    .how-to-draw {
+      margin-top: 16px;
+      padding: 16px;
+      background: #f8fafc;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+    }
+    .how-to-draw-title {
+      color: #374151;
+      font-weight: 500;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .how-to-draw ul {
+      margin: 0;
+      padding-left: 18px;
+      color: #6b7280;
+      font-size: 0.95em;
+      line-height: 1.6;
+    }
+    .export-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      gap: 12px;
+    }
+    .export-controls-right {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .view-select-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .view-select-group label {
+      font-size: 0.9em;
+      color: #666;
+      white-space: nowrap;
+    }
+    .view-select-group select {
+      padding: 4px 8px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      font-size: 0.9em;
+    }
+    .restore-section {
+      margin-top: 24px;
+    }
+    .restore-textarea {
+      width: 100%;
+      min-height: 100px;
+      padding: 12px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      font-family: 'Fira Mono', 'Consolas', monospace;
+      font-size: 14px;
+      resize: vertical;
+      box-sizing: border-box;
+    }
+    .restore-controls {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .restore-status {
+      margin-top: 8px;
+      font-size: 0.9em;
+      color: #666;
+    }
+    .usage-tip {
+      margin-top: 12px;
+      padding: 12px;
+      background: #fef3c7;
+      border-radius: 6px;
+      border: 1px solid #fbbf24;
+    }
+    .usage-tip-content {
+      color: #92400e;
+      font-size: 0.9em;
+    }
+    .config-note {
+      margin-top: 8px;
+      text-align: center;
+      color: #6b7280;
+      font-size: 0.9em;
+      display: flex;
+      align-items: center;
       justify-content: center;
+      gap: 6px;
     }
     .controls input[type="file"] {
       display: none;
@@ -132,72 +271,196 @@
       background: #2563eb;
       color: #fff;
     }
+    .header {
+      text-align: center;
+      margin-bottom: 32px;
+      padding-bottom: 24px;
+      border-bottom: 2px solid #e5e7eb;
+    }
+    .header h1 {
+      font-size: 2.2em;
+      color: #1f2937;
+      margin: 0 0 12px 0;
+      font-weight: 700;
+    }
+    .header p {
+      color: #6b7280;
+      font-size: 1.1em;
+      margin: 8px 0;
+      line-height: 1.5;
+    }
+    .header-links {
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+    .header-links a {
+      color: #2563eb;
+      text-decoration: none;
+      font-weight: 500;
+      padding: 6px 12px;
+      border-radius: 6px;
+      transition: background 0.2s;
+    }
+    .header-links a:hover {
+      background: #eff6ff;
+    }
+    .step-number {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      background: #2563eb;
+      color: white;
+      border-radius: 50%;
+      font-size: 0.85em;
+      font-weight: 600;
+      margin-right: 8px;
+    }
+    .section-title {
+      display: flex;
+      align-items: center;
+      font-size: 1.1em;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #374151;
+    }
     @media (max-width: 900px) {
-      .container { flex-direction: column; gap: 20px; padding: 18px; }
+      .container { gap: 20px; padding: 18px; }
+      .main-content { flex-direction: column; gap: 20px; }
       .left-panel, .right-panel { min-width: 0; }
+      .header h1 { font-size: 1.8em; }
+      .header-links { gap: 16px; }
+      .config-content { gap: 16px; padding: 16px; }
+      .export-controls { flex-direction: column; align-items: stretch; gap: 8px; }
+      .export-controls-right { justify-content: flex-end; }
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <div style="width:100%;display:flex;align-items:center;gap:18px;margin-bottom:18px;flex-wrap:wrap;justify-content:center;">
-      <label style="font-weight:500;">Canvas Size:</label>
-      <input type="number" id="inputWidth" value="720" min="1" style="width:70px;padding:4px 8px;border-radius:5px;border:1px solid #ccc;"> x
-      <input type="number" id="inputHeight" value="480" min="1" style="width:70px;padding:4px 8px;border-radius:5px;border:1px solid #ccc;">
-      <span style="color:#888;font-size:0.97em;margin-right:20px;">(Set before or after uploading image)</span>
-      
-      <label style="font-weight:500;">Target FPS:</label>
-      <select id="fpsSelect" style="padding:4px 8px;border-radius:5px;border:1px solid #ccc;">
-        <option value="8">8 FPS</option>
-        <option value="12">12 FPS</option>
-        <option value="16">16 FPS</option>
-        <option value="24" selected>24 FPS (Default)</option>
-        <option value="30">30 FPS</option>
-        <option value="60">60 FPS</option>
-      </select>
-      <span style="color:#888;font-size:0.97em;">(24 FPS is the standard for video generation)</span>
-    </div>
-    <div class="left-panel">
-      <div class="controls">
-        <label class="custom-file-label" for="imgInput">Upload Image</label>
-        <input type="file" id="imgInput" accept="image/*">
-        <button class="btn" id="newTrackBtn">New Track</button>
-        <button class="btn" id="undoBtn">Undo</button>
-        <button class="btn" id="clearBtn">Clear</button>
-      </div>
-      <canvas id="canvas" width="800" height="600"></canvas>
-      <div style="margin-top:10px;color:#888;font-size:0.98em;">
-        Tip: Click "New Track" to start a new trajectory. Use "Copy JSON" to get the trajectory data.<br>
-        FPS setting affects frame interpolation for ComfyUI video generation.
+    <!-- Header Section -->
+    <div class="header">
+      <h1>Trajectory Annotation Tool</h1>
+      <p>Create motion trajectories for ComfyUI video generation with precise control and FPS settings</p>
+      <div class="header-links">
+        <a href="http://docs.comfy.org/tutorials/video/wan/wan-ati" target="_blank">📖 Tutorial (EN)</a>
+        <a href="http://docs.comfy.org/zh-CN/tutorials/video/wan/wan-ati" target="_blank">📖 教程 (中文)</a>
+        <a href="https://github.com/comfyui-wiki/Trajectory-Annotation-Tool" target="_blank">🔗 GitHub</a>
       </div>
     </div>
-    <div class="right-panel">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-        <div class="json-header">Trajectory JSON</div>
-        <div style="display:flex;gap:8px;align-items:center;">
-          <label style="font-size:0.9em;color:#666;">View:</label>
-          <select id="jsonModeSelect" style="padding:2px 6px;border-radius:4px;border:1px solid #ccc;font-size:0.9em;">
-            <option value="simple" selected>Tracks Only</option>
-            <option value="full">Full Metadata</option>
+
+    <!-- Step 1: Canvas Configuration -->
+    <div class="config-section">
+      <div class="section-title">
+        <span class="step-number">1</span>
+        Canvas Configuration
+      </div>
+      <div class="config-content">
+        <div class="config-group">
+          <label>Canvas Size:</label>
+          <input type="number" id="inputWidth" value="720" min="1"> 
+          <span style="color:#6b7280;">×</span>
+          <input type="number" id="inputHeight" value="480" min="1">
+          <span style="color:#6b7280;font-size:0.9em;">(pixels)</span>
+        </div>
+        
+        <div class="config-group">
+          <label>Target FPS:</label>
+          <select id="fpsSelect">
+            <option value="8">8 FPS</option>
+            <option value="12">12 FPS</option>
+            <option value="16">16 FPS</option>
+            <option value="24" selected>24 FPS (Default)</option>
+            <option value="30">30 FPS</option>
+            <option value="60">60 FPS</option>
           </select>
-          <button class="copy-btn" id="copyJsonBtn">Copy JSON</button>
         </div>
       </div>
-      <div class="json-panel" id="jsonPanel">{}</div>
-      
-      <!-- Paste and Restore Trajectory Section -->
-      <div style="margin-top: 16px;">
-        <div class="json-header">Paste & Restore Trajectories</div>
-        <textarea 
-          id="pasteTextarea" 
-          placeholder="Paste trajectory JSON array here..."
-          style="width: 100%; min-height: 100px; padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; font-family: 'Fira Mono', 'Consolas', monospace; font-size: 14px; resize: vertical; box-sizing: border-box;"
-        ></textarea>
-        <div style="display: flex; gap: 8px; margin-top: 8px;">
-          <button class="btn primary" id="restoreBtn">Restore Trajectories</button>
-          <button class="btn" id="clearPasteBtn">Clear Input</button>
+      <div class="config-note">
+        📐 Set canvas dimensions and frame rate before or after uploading your image
+      </div>
+    </div>
+    
+    <!-- Main Content Area -->
+    <div class="main-content">
+      <!-- Left Panel: Image Upload & Drawing -->
+      <div class="left-panel">
+        <div class="drawing-section">
+          <div class="section-title">
+            <span class="step-number">2</span>
+            Image Upload & Drawing
+          </div>
+          <div class="controls">
+            <label class="custom-file-label" for="imgInput">Upload Image</label>
+            <input type="file" id="imgInput" accept="image/*">
+            <button class="btn" id="undoBtn">Undo</button>
+            <button class="btn" id="clearBtn">Clear</button>
+          </div>
+          <canvas id="canvas" width="800" height="600"></canvas>
+          <div class="how-to-draw">
+            <div class="how-to-draw-title">
+              ✏️ How to Draw Trajectories:
+            </div>
+            <ul>
+              <li>Upload an image or drag & drop onto the canvas</li>
+              <li>Click and drag to draw trajectory paths</li>
+              <li>Each drag creates a separate trajectory track</li>
+              <li>Use Undo to remove the last drawn track</li>
+              <li>Hover over points to see coordinates</li>
+            </ul>
+          </div>
         </div>
-        <div id="pasteStatus" style="margin-top: 8px; font-size: 0.9em; color: #666;"></div>
+      </div>
+      
+      <!-- Right Panel: Export & Restore -->
+      <div class="right-panel">
+        <div class="section-title">
+          <span class="step-number">3</span>
+          Export Trajectory Data
+        </div>
+        <div class="export-controls">
+          <div class="json-header">Trajectory JSON</div>
+          <div class="export-controls-right">
+            <div class="view-select-group">
+              <label>View:</label>
+              <select id="jsonModeSelect">
+                <option value="simple" selected>Tracks Only</option>
+                <option value="full">Full Metadata</option>
+              </select>
+            </div>
+            <button class="copy-btn" id="copyJsonBtn">Copy JSON</button>
+          </div>
+        </div>
+        <div class="json-panel" id="jsonPanel">{}</div>
+        
+        <!-- Paste and Restore Trajectory Section -->
+        <div class="restore-section">
+          <div class="section-title">
+            <span class="step-number">4</span>
+            Restore Trajectory Data
+          </div>
+          <div class="json-header">Paste & Restore Trajectories</div>
+          <textarea 
+            id="pasteTextarea" 
+            class="restore-textarea"
+            placeholder="Paste trajectory JSON array here..."
+          ></textarea>
+          <div class="restore-controls">
+            <button class="btn primary" id="restoreBtn">Restore Trajectories</button>
+            <button class="btn" id="clearPasteBtn">Clear Input</button>
+          </div>
+          <div id="pasteStatus" class="restore-status"></div>
+          
+          <div class="usage-tip">
+            <div class="usage-tip-content">
+              💡 <strong>Usage:</strong> Copy trajectory data from step 3 above, or paste external trajectory arrays to restore previously created paths.
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -209,7 +472,6 @@
     const jsonModeSelect = document.getElementById('jsonModeSelect');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
-    const newTrackBtn = document.getElementById('newTrackBtn');
     const undoBtn = document.getElementById('undoBtn');
     const clearBtn = document.getElementById('clearBtn');
     const jsonPanel = document.getElementById('jsonPanel');
@@ -318,14 +580,6 @@
       loadImageFile(file);
     });
 
-    // New track
-    newTrackBtn.addEventListener('click', () => {
-      // New Track button: just ends current drawing, but in new undo模式已不需要特殊处理
-      // 保持兼容性，清空 currentTrack
-      currentTrack = [];
-      redraw();
-      updateJsonPanel();
-    });
 
     // Undo the last point of the current track
     // Undo button: remove the last drawing segment (mouse drag)
