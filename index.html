@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Trajectory Annotation Tool (Frontend Only)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #f6f8fa;
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      color: #222;
+    }
+    .container {
+      max-width: 1100px;
+      margin: 40px auto;
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+      padding: 32px 32px 24px 32px;
+      display: flex;
+      gap: 32px;
+      flex-wrap: wrap;
+    }
+    .left-panel {
+      flex: 1 1 520px;
+      min-width: 340px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .right-panel {
+      flex: 1 1 340px;
+      min-width: 320px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    #canvas {
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      background: #fafbfc;
+      margin-top: 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+      max-width: 100%;
+      height: auto;
+      transition: box-shadow 0.2s;
+    }
+    .controls {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .controls input[type="file"] {
+      display: none;
+    }
+    .custom-file-label {
+      padding: 8px 18px;
+      background: #2563eb;
+      color: #fff;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background 0.2s;
+      border: none;
+    }
+    .custom-file-label:hover {
+      background: #1741a6;
+    }
+    .btn {
+      padding: 8px 18px;
+      background: #f3f4f6;
+      color: #222;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background 0.2s, color 0.2s;
+    }
+    .btn.primary {
+      background: #2563eb;
+      color: #fff;
+      border: none;
+    }
+    .btn.primary:hover {
+      background: #1741a6;
+    }
+    .btn:hover {
+      background: #e5e7eb;
+    }
+    .json-panel {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 16px;
+      min-height: 220px;
+      font-family: 'Fira Mono', 'Consolas', monospace;
+      font-size: 15px;
+      color: #2d3748;
+      white-space: pre-wrap;
+      word-break: break-all;
+      overflow-x: auto;
+      box-sizing: border-box;
+      margin-bottom: 8px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .json-header {
+      font-size: 1.1em;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: #2563eb;
+      letter-spacing: 0.5px;
+    }
+    .copy-btn {
+      background: #e0e7ff;
+      color: #2563eb;
+      border: none;
+      border-radius: 5px;
+      padding: 4px 12px;
+      font-size: 0.95em;
+      cursor: pointer;
+      margin-bottom: 8px;
+      float: right;
+      transition: background 0.2s, color 0.2s;
+    }
+    .copy-btn:hover {
+      background: #2563eb;
+      color: #fff;
+    }
+    @media (max-width: 900px) {
+      .container { flex-direction: column; gap: 20px; padding: 18px; }
+      .left-panel, .right-panel { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="left-panel">
+      <div class="controls">
+        <label class="custom-file-label" for="imgInput">Upload Image</label>
+        <input type="file" id="imgInput" accept="image/*">
+        <button class="btn" id="newTrackBtn">New Track</button>
+        <button class="btn primary" id="exportBtn">Export JSON</button>
+      </div>
+      <canvas id="canvas" width="800" height="600"></canvas>
+      <div style="margin-top:10px;color:#888;font-size:0.98em;">Tip: Click "New Track" to start a new trajectory. Exported JSON includes all tracks.</div>
+    </div>
+    <div class="right-panel">
+      <div class="json-header">Trajectory JSON</div>
+      <button class="copy-btn" id="copyJsonBtn">Copy JSON</button>
+      <div class="json-panel" id="jsonPanel">{}</div>
+    </div>
+  </div>
+  <script>
+    const imgInput = document.getElementById('imgInput');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const exportBtn = document.getElementById('exportBtn');
+    const newTrackBtn = document.getElementById('newTrackBtn');
+    const jsonPanel = document.getElementById('jsonPanel');
+    const copyJsonBtn = document.getElementById('copyJsonBtn');
+    const fileLabel = document.querySelector('.custom-file-label');
+
+    let img = null;
+    let drawing = false;
+    let currentTrack = [];
+    let allTracks = [];
+    let colors = ['#2563eb', '#059669', '#f59e42', '#e11d48', '#a21caf', '#0ea5e9', '#fbbf24', '#10b981', '#f43f5e'];
+
+    // 轨迹主色列表（HSL色相值）
+    const trackHues = [210, 140, 30, 270, 0, 320, 180, 50, 90]; // 蓝、绿、橙、紫、红、粉、青、黄、草绿
+
+    // Update JSON panel
+    function updateJsonPanel() {
+      let tracks = allTracks.slice();
+      if (currentTrack.length > 0) tracks.push(currentTrack);
+      const data = {
+        imageWidth: img ? img.width : null,
+        imageHeight: img ? img.height : null,
+        tracks: tracks
+      };
+      jsonPanel.textContent = JSON.stringify(data, null, 2);
+    }
+
+    // File input
+    imgInput.addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      fileLabel.textContent = file.name;
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        img = new window.Image();
+        img.onload = function() {
+          canvas.width = img.width;
+          canvas.height = img.height;
+          redraw();
+          updateJsonPanel();
+        };
+        img.src = evt.target.result;
+      };
+      reader.readAsDataURL(file);
+      // Clear tracks
+      allTracks = [];
+      currentTrack = [];
+      updateJsonPanel();
+    });
+
+    // New track
+    newTrackBtn.addEventListener('click', () => {
+      if (currentTrack.length > 0) {
+        allTracks.push(currentTrack);
+        currentTrack = [];
+        redraw();
+        updateJsonPanel();
+      }
+    });
+
+    // Draw track
+    canvas.addEventListener('mousedown', e => {
+      if (!img) return;
+      drawing = true;
+      const [x, y] = getXY(e);
+      currentTrack.push({x, y});
+      redraw();
+      updateJsonPanel();
+    });
+
+    canvas.addEventListener('mousemove', e => {
+      if (!drawing || !img) return;
+      const [x, y] = getXY(e);
+      currentTrack.push({x, y});
+      redraw();
+      updateJsonPanel();
+    });
+
+    canvas.addEventListener('mouseup', e => {
+      drawing = false;
+    });
+    canvas.addEventListener('mouseleave', e => {
+      drawing = false;
+    });
+
+    // Export JSON
+    exportBtn.addEventListener('click', () => {
+      let tracks = allTracks.slice();
+      if (currentTrack.length > 0) tracks.push(currentTrack);
+      const data = {
+        imageWidth: img ? img.width : null,
+        imageHeight: img ? img.height : null,
+        tracks: tracks
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'tracks.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // Copy JSON
+    copyJsonBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(jsonPanel.textContent).then(() => {
+        copyJsonBtn.textContent = 'Copied!';
+        setTimeout(() => copyJsonBtn.textContent = 'Copy JSON', 1200);
+      });
+    });
+
+    // Utility
+    function getXY(e) {
+      const rect = canvas.getBoundingClientRect();
+      return [
+        Math.round((e.clientX - rect.left) * canvas.width / rect.width),
+        Math.round((e.clientY - rect.top) * canvas.height / rect.height)
+      ];
+    }
+
+    function redraw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (img) ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      // Draw all tracks
+      allTracks.forEach((track, idx) => {
+        drawTrack(track, colors[idx % colors.length], idx);
+      });
+      // Draw current track
+      if (currentTrack.length > 0) {
+        drawTrack(currentTrack, colors[allTracks.length % colors.length], allTracks.length);
+      }
+    }
+
+    function drawTrack(track, color, trackIdx = 0) {
+      if (track.length === 0) return;
+      // 不同轨迹用不同主色的同色系渐变
+      function getGradient(t) {
+        // t: 0~1
+        const hue = trackHues[trackIdx % trackHues.length];
+        const l = 85 - 50 * t; // 85% -> 35%
+        return `hsl(${hue}, 90%, ${l}%)`;
+      }
+
+      ctx.lineWidth = 7;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (let i = 1; i < track.length; ++i) {
+        const t = i / (track.length - 1);
+        ctx.strokeStyle = getGradient(t);
+        ctx.beginPath();
+        ctx.moveTo(track[i - 1].x, track[i - 1].y);
+        ctx.lineTo(track[i].x, track[i].y);
+        ctx.stroke();
+      }
+
+      // 起点大圆（绿色）
+      ctx.fillStyle = '#22c55e';
+      ctx.beginPath();
+      ctx.arc(track[0].x, track[0].y, 11, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.strokeStyle = '#16a34a';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(track[0].x, track[0].y, 11, 0, 2 * Math.PI);
+      ctx.stroke();
+
+      // 终点箭头（红色）
+      if (track.length > 1) {
+        const end = track[track.length - 1];
+        const prev = track[track.length - 2];
+        const dx = end.x - prev.x;
+        const dy = end.y - prev.y;
+        const len = Math.sqrt(dx * dx + dy * dy) || 1;
+        const ux = dx / len, uy = dy / len;
+        // 箭头主线
+        ctx.strokeStyle = '#ef4444';
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(prev.x, prev.y);
+        ctx.lineTo(end.x, end.y);
+        ctx.stroke();
+        // 箭头两翼
+        const arrowLen = 22, angle = Math.PI / 7;
+        for (let sign of [-1, 1]) {
+          const theta = Math.atan2(uy, ux) + sign * angle;
+          const x2 = end.x - arrowLen * Math.cos(theta);
+          const y2 = end.y - arrowLen * Math.sin(theta);
+          ctx.beginPath();
+          ctx.moveTo(end.x, end.y);
+          ctx.lineTo(x2, y2);
+          ctx.stroke();
+        }
+        // 终点圆
+        ctx.fillStyle = '#ef4444';
+        ctx.beginPath();
+        ctx.arc(end.x, end.y, 8, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+    }
+
+    // 鼠标悬停显示坐标
+    let hoverPoint = null;
+    canvas.addEventListener('mousemove', e => {
+      if (drawing || !img) return;
+      const [mx, my] = getXY(e);
+      let found = null;
+      // 检查所有轨迹点
+      for (const track of [...allTracks, currentTrack]) {
+        for (const pt of track) {
+          if (Math.abs(pt.x - mx) < 10 && Math.abs(pt.y - my) < 10) {
+            found = pt;
+            break;
+          }
+        }
+        if (found) break;
+      }
+      hoverPoint = found;
+      redraw();
+      if (hoverPoint) {
+        // 显示坐标提示
+        ctx.save();
+        ctx.font = 'bold 15px Segoe UI, Arial';
+        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = '#2563eb';
+        ctx.lineWidth = 4;
+        const text = `(${hoverPoint.x}, ${hoverPoint.y})`;
+        const tx = hoverPoint.x + 14, ty = hoverPoint.y - 10;
+        ctx.strokeText(text, tx, ty);
+        ctx.fillStyle = '#2563eb';
+        ctx.fillText(text, tx, ty);
+        ctx.restore();
+      }
+    });
+    canvas.addEventListener('mouseleave', e => {
+      if (!drawing) {
+        hoverPoint = null;
+        redraw();
+      }
+    });
+
+    // Initial JSON panel
+    updateJsonPanel();
+  </script>
+</body>
+</html> 
