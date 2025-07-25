@@ -184,6 +184,21 @@
         </div>
       </div>
       <div class="json-panel" id="jsonPanel">{}</div>
+      
+      <!-- Paste and Restore Trajectory Section -->
+      <div style="margin-top: 16px;">
+        <div class="json-header">Paste & Restore Trajectories</div>
+        <textarea 
+          id="pasteTextarea" 
+          placeholder="Paste trajectory JSON array here..."
+          style="width: 100%; min-height: 100px; padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; font-family: 'Fira Mono', 'Consolas', monospace; font-size: 14px; resize: vertical; box-sizing: border-box;"
+        ></textarea>
+        <div style="display: flex; gap: 8px; margin-top: 8px;">
+          <button class="btn primary" id="restoreBtn">Restore Trajectories</button>
+          <button class="btn" id="clearPasteBtn">Clear Input</button>
+        </div>
+        <div id="pasteStatus" style="margin-top: 8px; font-size: 0.9em; color: #666;"></div>
+      </div>
     </div>
   </div>
   <script>
@@ -200,6 +215,12 @@
     const jsonPanel = document.getElementById('jsonPanel');
     const copyJsonBtn = document.getElementById('copyJsonBtn');
     const fileLabel = document.querySelector('.custom-file-label');
+    
+    // Paste and restore elements
+    const pasteTextarea = document.getElementById('pasteTextarea');
+    const restoreBtn = document.getElementById('restoreBtn');
+    const clearPasteBtn = document.getElementById('clearPasteBtn');
+    const pasteStatus = document.getElementById('pasteStatus');
 
     let img = null;
     let drawing = false;
@@ -457,6 +478,96 @@
         copyJsonBtn.textContent = 'Copied!';
         setTimeout(() => copyJsonBtn.textContent = 'Copy JSON', 1200);
       });
+    });
+
+    // Paste and restore trajectory functionality
+    function validateTrajectoryData(data) {
+      try {
+        // Parse if it's a string
+        const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+        
+        // Check if it's an array of trajectories
+        if (!Array.isArray(parsed)) {
+          return { valid: false, error: 'Data must be an array of trajectories' };
+        }
+        
+        // Validate each trajectory
+        for (let i = 0; i < parsed.length; i++) {
+          const track = parsed[i];
+          if (!Array.isArray(track)) {
+            return { valid: false, error: `Track ${i + 1} is not an array` };
+          }
+          
+          for (let j = 0; j < track.length; j++) {
+            const point = track[j];
+            if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') {
+              return { valid: false, error: `Invalid point at track ${i + 1}, position ${j + 1}` };
+            }
+          }
+        }
+        
+        return { valid: true, data: parsed };
+      } catch (e) {
+        return { valid: false, error: `JSON parsing error: ${e.message}` };
+      }
+    }
+
+    function restoreTrajectories(trajectoryData) {
+      // Clear current trajectories
+      allTracks = [];
+      currentTrack = [];
+      drawHistory = [];
+      
+      // Convert trajectory data to drawHistory format
+      for (const track of trajectoryData) {
+        if (track.length > 0) {
+          drawHistory.push(track.slice()); // Make a copy of each track
+        }
+      }
+      
+      // Update tracks from history
+      updateTracksFromHistory();
+      
+      // Redraw canvas and update JSON
+      redraw();
+      updateJsonPanel();
+    }
+
+    // Restore button event listener
+    restoreBtn.addEventListener('click', () => {
+      const inputText = pasteTextarea.value.trim();
+      
+      if (!inputText) {
+        pasteStatus.textContent = 'Please paste trajectory data first';
+        pasteStatus.style.color = '#e11d48';
+        return;
+      }
+      
+      const validation = validateTrajectoryData(inputText);
+      
+      if (!validation.valid) {
+        pasteStatus.textContent = `Error: ${validation.error}`;
+        pasteStatus.style.color = '#e11d48';
+        return;
+      }
+      
+      // Restore the trajectories
+      restoreTrajectories(validation.data);
+      
+      // Show success message
+      const trackCount = validation.data.length;
+      const pointCount = validation.data.reduce((sum, track) => sum + track.length, 0);
+      pasteStatus.textContent = `Successfully restored ${trackCount} trajectories with ${pointCount} total points`;
+      pasteStatus.style.color = '#059669';
+      
+      // Clear the textarea
+      pasteTextarea.value = '';
+    });
+
+    // Clear paste input button
+    clearPasteBtn.addEventListener('click', () => {
+      pasteTextarea.value = '';
+      pasteStatus.textContent = '';
     });
 
     // Utility
