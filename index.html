@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Trajectory Annotation Tool (Frontend Only)</title>
+  <title>Trajectory Annotation Tool with FPS Support</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     body {
@@ -142,9 +142,20 @@
   <div class="container">
     <div style="width:100%;display:flex;align-items:center;gap:18px;margin-bottom:18px;flex-wrap:wrap;justify-content:center;">
       <label style="font-weight:500;">Canvas Size:</label>
-      <input type="number" id="inputWidth" value="512" min="1" style="width:70px;padding:4px 8px;border-radius:5px;border:1px solid #ccc;"> x
-      <input type="number" id="inputHeight" value="512" min="1" style="width:70px;padding:4px 8px;border-radius:5px;border:1px solid #ccc;">
-      <span style="color:#888;font-size:0.97em;">(Set before or after uploading image)</span>
+      <input type="number" id="inputWidth" value="720" min="1" style="width:70px;padding:4px 8px;border-radius:5px;border:1px solid #ccc;"> x
+      <input type="number" id="inputHeight" value="480" min="1" style="width:70px;padding:4px 8px;border-radius:5px;border:1px solid #ccc;">
+      <span style="color:#888;font-size:0.97em;margin-right:20px;">(Set before or after uploading image)</span>
+      
+      <label style="font-weight:500;">Target FPS:</label>
+      <select id="fpsSelect" style="padding:4px 8px;border-radius:5px;border:1px solid #ccc;">
+        <option value="8">8 FPS</option>
+        <option value="12">12 FPS</option>
+        <option value="16">16 FPS</option>
+        <option value="24" selected>24 FPS (Default)</option>
+        <option value="30">30 FPS</option>
+        <option value="60">60 FPS</option>
+      </select>
+      <span style="color:#888;font-size:0.97em;">(24 FPS is the standard for video generation)</span>
     </div>
     <div class="left-panel">
       <div class="controls">
@@ -153,14 +164,25 @@
         <button class="btn" id="newTrackBtn">New Track</button>
         <button class="btn" id="undoBtn">Undo</button>
         <button class="btn" id="clearBtn">Clear</button>
-        <button class="btn primary" id="exportBtn">Export JSON</button>
       </div>
       <canvas id="canvas" width="800" height="600"></canvas>
-      <div style="margin-top:10px;color:#888;font-size:0.98em;">Tip: Click "New Track" to start a new trajectory. Exported JSON includes all tracks.</div>
+      <div style="margin-top:10px;color:#888;font-size:0.98em;">
+        Tip: Click "New Track" to start a new trajectory. Use "Copy JSON" to get the trajectory data.<br>
+        FPS setting affects frame interpolation for ComfyUI video generation.
+      </div>
     </div>
     <div class="right-panel">
-      <div class="json-header">Trajectory JSON</div>
-      <button class="copy-btn" id="copyJsonBtn">Copy JSON</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <div class="json-header">Trajectory JSON</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <label style="font-size:0.9em;color:#666;">View:</label>
+          <select id="jsonModeSelect" style="padding:2px 6px;border-radius:4px;border:1px solid #ccc;font-size:0.9em;">
+            <option value="simple" selected>Tracks Only</option>
+            <option value="full">Full Metadata</option>
+          </select>
+          <button class="copy-btn" id="copyJsonBtn">Copy JSON</button>
+        </div>
+      </div>
       <div class="json-panel" id="jsonPanel">{}</div>
     </div>
   </div>
@@ -168,9 +190,10 @@
     const imgInput = document.getElementById('imgInput');
     const inputWidth = document.getElementById('inputWidth');
     const inputHeight = document.getElementById('inputHeight');
+    const fpsSelect = document.getElementById('fpsSelect');
+    const jsonModeSelect = document.getElementById('jsonModeSelect');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
-    const exportBtn = document.getElementById('exportBtn');
     const newTrackBtn = document.getElementById('newTrackBtn');
     const undoBtn = document.getElementById('undoBtn');
     const clearBtn = document.getElementById('clearBtn');
@@ -188,11 +211,83 @@
     // History of all drawing actions (each is a track segment drawn in one mouse drag)
     let drawHistory = [];
 
-    // Update JSON panel (export only tracks array)
+    // Process tracks to match ComfyUI's FIXED_LENGTH (121) and FPS conversion
+    function processTracksForFPS(tracks, targetFPS) {
+      const FIXED_LENGTH = 121;
+      const processed = [];
+      
+      for (const track of tracks) {
+        if (track.length === 0) continue;
+        
+        // Pad or truncate to FIXED_LENGTH
+        let paddedTrack = [];
+        for (let i = 0; i < FIXED_LENGTH; i++) {
+          if (i < track.length) {
+            paddedTrack.push({
+              x: track[i].x,
+              y: track[i].y
+            });
+          } else {
+            // Pad with last point
+            paddedTrack.push({
+              x: track[track.length - 1].x,
+              y: track[track.length - 1].y
+            });
+          }
+        }
+        processed.push(paddedTrack);
+      }
+      
+      return processed;
+    }
+
+    // Calculate effective frame count based on FPS (matching ComfyUI's logic)
+    function calculateFrameCount(targetFPS) {
+      // ComfyUI uses 120 base frames for interpolation calculation
+      // This matches the logic in process_tracks: a = 120 // gcd(120, num_frames)
+      const baseFrames = 120;
+      const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
+      const frameGCD = gcd(baseFrames, targetFPS);
+      return {
+        targetFrames: targetFPS,
+        interpolationRatio: baseFrames / frameGCD,
+        outputFrames: targetFPS / frameGCD
+      };
+    }
+
+    // Update JSON panel with different view modes
     function updateJsonPanel() {
       let tracks = allTracks.slice();
       if (currentTrack.length > 0) tracks.push(currentTrack);
-      jsonPanel.textContent = JSON.stringify(tracks, null, 2);
+      
+      const targetFPS = parseInt(fpsSelect.value);
+      const frameInfo = calculateFrameCount(targetFPS);
+      const processedTracks = processTracksForFPS(tracks, targetFPS);
+      const viewMode = jsonModeSelect.value;
+      
+      let displayData;
+      if (viewMode === 'simple') {
+        // Simple mode: only show processed tracks array
+        displayData = processedTracks;
+      } else {
+        // Full mode: show complete metadata
+        displayData = {
+          tracks: processedTracks,
+          fps: targetFPS,
+          frameInfo: frameInfo,
+          canvasSize: {
+            width: parseInt(inputWidth.value) || 720,
+            height: parseInt(inputHeight.value) || 480
+          },
+          metadata: {
+            fixedLength: 121,
+            viewMode: viewMode,
+            toolVersion: "1.1.0"
+          }
+        };
+      }
+      
+      jsonPanel.textContent = JSON.stringify(displayData, null, 2);
     }
 
     // File input
@@ -333,8 +428,8 @@
 
     // When user changes width/height, resize canvas and redraw image/track
     function updateCanvasSizeAndRedraw() {
-      const w = parseInt(inputWidth.value) || 512;
-      const h = parseInt(inputHeight.value) || 512;
+      const w = parseInt(inputWidth.value) || 720;
+      const h = parseInt(inputHeight.value) || 480;
       canvas.width = w;
       canvas.height = h;
       redraw();
@@ -343,21 +438,18 @@
 
     inputWidth.addEventListener('change', updateCanvasSizeAndRedraw);
     inputHeight.addEventListener('change', updateCanvasSizeAndRedraw);
+    
+    // FPS selection
+    fpsSelect.addEventListener('change', () => {
+      updateJsonPanel();
+    });
+    
+    // JSON view mode selection
+    jsonModeSelect.addEventListener('change', () => {
+      updateJsonPanel();
+    });
     // --- End Image resizing and canvas size logic ---
 
-    // Export JSON
-    exportBtn.addEventListener('click', () => {
-      let tracks = allTracks.slice();
-      if (currentTrack.length > 0) tracks.push(currentTrack);
-      // Only export tracks array
-      const blob = new Blob([JSON.stringify(tracks, null, 2)], {type: 'application/json'});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'tracks.json';
-      a.click();
-      URL.revokeObjectURL(url);
-    });
 
     // Copy JSON
     copyJsonBtn.addEventListener('click', () => {
@@ -552,8 +644,8 @@
         img = new window.Image();
         img.onload = function() {
           // Set canvas to target size
-          const w = parseInt(inputWidth.value) || 512;
-          const h = parseInt(inputHeight.value) || 512;
+          const w = parseInt(inputWidth.value) || 720;
+          const h = parseInt(inputHeight.value) || 480;
           canvas.width = w;
           canvas.height = h;
           redraw();
