@@ -140,11 +140,19 @@
 </head>
 <body>
   <div class="container">
+    <div style="width:100%;display:flex;align-items:center;gap:18px;margin-bottom:18px;flex-wrap:wrap;justify-content:center;">
+      <label style="font-weight:500;">Canvas Size:</label>
+      <input type="number" id="inputWidth" value="512" min="1" style="width:70px;padding:4px 8px;border-radius:5px;border:1px solid #ccc;"> x
+      <input type="number" id="inputHeight" value="512" min="1" style="width:70px;padding:4px 8px;border-radius:5px;border:1px solid #ccc;">
+      <span style="color:#888;font-size:0.97em;">(Set before or after uploading image)</span>
+    </div>
     <div class="left-panel">
       <div class="controls">
         <label class="custom-file-label" for="imgInput">Upload Image</label>
         <input type="file" id="imgInput" accept="image/*">
         <button class="btn" id="newTrackBtn">New Track</button>
+        <button class="btn" id="undoBtn">Undo</button>
+        <button class="btn" id="clearBtn">Clear</button>
         <button class="btn primary" id="exportBtn">Export JSON</button>
       </div>
       <canvas id="canvas" width="800" height="600"></canvas>
@@ -158,10 +166,14 @@
   </div>
   <script>
     const imgInput = document.getElementById('imgInput');
+    const inputWidth = document.getElementById('inputWidth');
+    const inputHeight = document.getElementById('inputHeight');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const exportBtn = document.getElementById('exportBtn');
     const newTrackBtn = document.getElementById('newTrackBtn');
+    const undoBtn = document.getElementById('undoBtn');
+    const clearBtn = document.getElementById('clearBtn');
     const jsonPanel = document.getElementById('jsonPanel');
     const copyJsonBtn = document.getElementById('copyJsonBtn');
     const fileLabel = document.querySelector('.custom-file-label');
@@ -171,90 +183,159 @@
     let currentTrack = [];
     let allTracks = [];
     let colors = ['#2563eb', '#059669', '#f59e42', '#e11d48', '#a21caf', '#0ea5e9', '#fbbf24', '#10b981', '#f43f5e'];
+    // Track hues for color gradients
+    const trackHues = [210, 140, 30, 270, 0, 320, 180, 50, 90];
+    // History of all drawing actions (each is a track segment drawn in one mouse drag)
+    let drawHistory = [];
 
-    // 轨迹主色列表（HSL色相值）
-    const trackHues = [210, 140, 30, 270, 0, 320, 180, 50, 90]; // 蓝、绿、橙、紫、红、粉、青、黄、草绿
-
-    // Update JSON panel
+    // Update JSON panel (export only tracks array)
     function updateJsonPanel() {
       let tracks = allTracks.slice();
       if (currentTrack.length > 0) tracks.push(currentTrack);
-      const data = {
-        imageWidth: img ? img.width : null,
-        imageHeight: img ? img.height : null,
-        tracks: tracks
-      };
-      jsonPanel.textContent = JSON.stringify(data, null, 2);
+      jsonPanel.textContent = JSON.stringify(tracks, null, 2);
     }
 
     // File input
     imgInput.addEventListener('change', e => {
       const file = e.target.files[0];
       if (!file) return;
-      fileLabel.textContent = file.name;
-      const reader = new FileReader();
-      reader.onload = function(evt) {
-        img = new window.Image();
-        img.onload = function() {
-          canvas.width = img.width;
-          canvas.height = img.height;
-          redraw();
-          updateJsonPanel();
-        };
-        img.src = evt.target.result;
-      };
-      reader.readAsDataURL(file);
-      // Clear tracks
-      allTracks = [];
-      currentTrack = [];
-      updateJsonPanel();
+      loadImageFile(file);
     });
 
     // New track
     newTrackBtn.addEventListener('click', () => {
-      if (currentTrack.length > 0) {
-        allTracks.push(currentTrack);
-        currentTrack = [];
+      // New Track button: just ends current drawing, but in new undo模式已不需要特殊处理
+      // 保持兼容性，清空 currentTrack
+      currentTrack = [];
+      redraw();
+      updateJsonPanel();
+    });
+
+    // Undo the last point of the current track
+    // Undo button: remove the last drawing segment (mouse drag)
+    undoBtn.addEventListener('click', () => {
+      if (drawHistory.length > 0) {
+        drawHistory.pop();
+        updateTracksFromHistory();
         redraw();
         updateJsonPanel();
       }
     });
 
+    // Clear all tracks and current drawing
+    clearBtn.addEventListener('click', () => {
+      allTracks = [];
+      currentTrack = [];
+      drawHistory = [];
+      redraw();
+      updateJsonPanel();
+    });
+
     // Draw track
+    // --- Drawing logic: record each mouse drag as a segment in drawHistory ---
+    let tempTrack = [];
     canvas.addEventListener('mousedown', e => {
       if (!img) return;
       drawing = true;
+      tempTrack = [];
       const [x, y] = getXY(e);
-      currentTrack.push({x, y});
-      redraw();
-      updateJsonPanel();
+      tempTrack.push({x, y});
+      redrawWithTemp(tempTrack);
     });
 
     canvas.addEventListener('mousemove', e => {
       if (!drawing || !img) return;
       const [x, y] = getXY(e);
-      currentTrack.push({x, y});
-      redraw();
-      updateJsonPanel();
+      tempTrack.push({x, y});
+      redrawWithTemp(tempTrack);
     });
 
     canvas.addEventListener('mouseup', e => {
+      if (drawing && tempTrack.length > 0) {
+        drawHistory.push(tempTrack.slice()); // Save this segment
+        updateTracksFromHistory();
+        redraw();
+        updateJsonPanel();
+      }
       drawing = false;
+      tempTrack = [];
     });
     canvas.addEventListener('mouseleave', e => {
+      if (drawing && tempTrack.length > 0) {
+        drawHistory.push(tempTrack.slice());
+        updateTracksFromHistory();
+        redraw();
+        updateJsonPanel();
+      }
       drawing = false;
+      tempTrack = [];
     });
+
+    // Redraw with a temporary track (for live drawing preview)
+    function redrawWithTemp(temp) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (img) ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      drawHistory.forEach((track, idx) => {
+        drawTrack(track, colors[idx % colors.length], idx);
+      });
+      if (temp && temp.length > 0) {
+        drawTrack(temp, colors[drawHistory.length % colors.length], drawHistory.length);
+      }
+    }
+
+    // Update allTracks/currentTrack from drawHistory
+    function updateTracksFromHistory() {
+      // allTracks: all finished tracks, currentTrack: empty
+      allTracks = drawHistory.map(seg => seg.slice());
+      currentTrack = [];
+    }
+
+    // --- Image resizing and canvas size logic ---
+    // Resize and draw image to fit target size, using bilinear interpolation, center align
+    function drawResizedImageToCanvas(image, targetW, targetH) {
+      // Create a temp canvas for resizing
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = targetW;
+      tempCanvas.height = targetH;
+      const tctx = tempCanvas.getContext('2d');
+      // Fill with white background
+      tctx.fillStyle = '#fff';
+      tctx.fillRect(0, 0, targetW, targetH);
+      // Compute scale and offset for center align
+      const scale = Math.min(targetW / image.width, targetH / image.height);
+      const drawW = image.width * scale;
+      const drawH = image.height * scale;
+      const dx = (targetW - drawW) / 2;
+      const dy = (targetH - drawH) / 2;
+      // Use bilinear interpolation
+      tctx.imageSmoothingEnabled = true;
+      tctx.imageSmoothingQuality = 'high';
+      tctx.drawImage(image, 0, 0, image.width, image.height, dx, dy, drawW, drawH);
+      // Draw to main canvas
+      ctx.clearRect(0, 0, targetW, targetH);
+      ctx.drawImage(tempCanvas, 0, 0);
+    }
+
+    // When user changes width/height, resize canvas and redraw image/track
+    function updateCanvasSizeAndRedraw() {
+      const w = parseInt(inputWidth.value) || 512;
+      const h = parseInt(inputHeight.value) || 512;
+      canvas.width = w;
+      canvas.height = h;
+      redraw();
+      updateJsonPanel();
+    }
+
+    inputWidth.addEventListener('change', updateCanvasSizeAndRedraw);
+    inputHeight.addEventListener('change', updateCanvasSizeAndRedraw);
+    // --- End Image resizing and canvas size logic ---
 
     // Export JSON
     exportBtn.addEventListener('click', () => {
       let tracks = allTracks.slice();
       if (currentTrack.length > 0) tracks.push(currentTrack);
-      const data = {
-        imageWidth: img ? img.width : null,
-        imageHeight: img ? img.height : null,
-        tracks: tracks
-      };
-      const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+      // Only export tracks array
+      const blob = new Blob([JSON.stringify(tracks, null, 2)], {type: 'application/json'});
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -282,20 +363,21 @@
 
     function redraw() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (img) ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      // Draw all tracks
-      allTracks.forEach((track, idx) => {
+      // Draw resized image with bilinear interpolation, center align
+      if (img) drawResizedImageToCanvas(img, canvas.width, canvas.height);
+      // Draw all tracks from drawHistory
+      drawHistory.forEach((track, idx) => {
         drawTrack(track, colors[idx % colors.length], idx);
       });
-      // Draw current track
+      // Draw current track (should always be empty in new undo mode, but for compatibility)
       if (currentTrack.length > 0) {
-        drawTrack(currentTrack, colors[allTracks.length % colors.length], allTracks.length);
+        drawTrack(currentTrack, colors[drawHistory.length % colors.length], drawHistory.length);
       }
     }
 
     function drawTrack(track, color, trackIdx = 0) {
       if (track.length === 0) return;
-      // 不同轨迹用不同主色的同色系渐变
+      // Use different gradients of the same color family for different tracks
       function getGradient(t) {
         // t: 0~1
         const hue = trackHues[trackIdx % trackHues.length];
@@ -399,6 +481,71 @@
         redraw();
       }
     });
+
+    // --- Drag & Drop and Paste Image Support ---
+    // Handle drag over canvas (show visual feedback)
+    canvas.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      canvas.style.boxShadow = '0 0 0 4px #2563eb55';
+    });
+    canvas.addEventListener('dragleave', function(e) {
+      e.preventDefault();
+      canvas.style.boxShadow = '';
+    });
+    // Handle drop image file on canvas
+    canvas.addEventListener('drop', function(e) {
+      e.preventDefault();
+      canvas.style.boxShadow = '';
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        const file = e.dataTransfer.files[0];
+        if (file.type.startsWith('image/')) {
+          loadImageFile(file);
+        }
+      }
+    });
+
+    // Handle paste image from clipboard
+    window.addEventListener('paste', function(e) {
+      if (e.clipboardData && e.clipboardData.items) {
+        for (let i = 0; i < e.clipboardData.items.length; i++) {
+          const item = e.clipboardData.items[i];
+          if (item.type.startsWith('image/')) {
+            const file = item.getAsFile();
+            if (file) {
+              loadImageFile(file);
+              break;
+            }
+          }
+        }
+      }
+    });
+
+    // Helper to load image file (from input, drop, or paste)
+    function loadImageFile(file) {
+      fileLabel.textContent = file.name || 'Image';
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        img = new window.Image();
+        img.onload = function() {
+          // Set canvas to target size
+          const w = parseInt(inputWidth.value) || 512;
+          const h = parseInt(inputHeight.value) || 512;
+          canvas.width = w;
+          canvas.height = h;
+          redraw();
+          updateJsonPanel();
+        };
+        img.src = evt.target.result;
+      };
+      reader.readAsDataURL(file);
+      // Clear tracks
+      allTracks = [];
+      currentTrack = [];
+      drawHistory = [];
+      updateJsonPanel();
+    }
+
+    // --- End Drag & Drop and Paste Support ---
 
     // Initial JSON panel
     updateJsonPanel();
