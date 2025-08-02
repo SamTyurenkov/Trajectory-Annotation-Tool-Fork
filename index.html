@@ -362,26 +362,20 @@
       <div class="config-content">
         <div class="config-group">
           <label>Canvas Size:</label>
-          <input type="number" id="inputWidth" value="720" min="1"> 
+          <input type="number" id="inputWidth" value="2048" min="1"> 
           <span style="color:#6b7280;">×</span>
-          <input type="number" id="inputHeight" value="480" min="1">
+          <input type="number" id="inputHeight" value="1024" min="1">
           <span style="color:#6b7280;font-size:0.9em;">(pixels)</span>
         </div>
         
         <div class="config-group">
-          <label>Target FPS:</label>
-          <select id="fpsSelect">
-            <option value="8">8 FPS</option>
-            <option value="12">12 FPS</option>
-            <option value="16">16 FPS</option>
-            <option value="24" selected>24 FPS (Default)</option>
-            <option value="30">30 FPS</option>
-            <option value="60">60 FPS</option>
-          </select>
+          <label>Frame Count:</label>
+          <input type="number" id="frameCountInput" value="81" min="1" max="121">
+          <span style="color:#6b7280;font-size:0.9em;">(frames)</span>
         </div>
       </div>
       <div class="config-note">
-        📐 Set canvas dimensions and frame rate before or after uploading your image
+        📐 Set canvas dimensions and frame count before or after uploading your image
       </div>
     </div>
     
@@ -400,7 +394,7 @@
             <button class="btn" id="undoBtn">Undo</button>
             <button class="btn" id="clearBtn">Clear</button>
           </div>
-          <canvas id="canvas" width="800" height="600"></canvas>
+          <canvas id="canvas" width="2048" height="1024"></canvas>
           <div class="how-to-draw">
             <div class="how-to-draw-title">
               ✏️ How to Draw Trajectories:
@@ -469,7 +463,7 @@
     const imgInput = document.getElementById('imgInput');
     const inputWidth = document.getElementById('inputWidth');
     const inputHeight = document.getElementById('inputHeight');
-    const fpsSelect = document.getElementById('fpsSelect');
+    const frameCountInput = document.getElementById('frameCountInput');
     const jsonModeSelect = document.getElementById('jsonModeSelect');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
@@ -495,7 +489,68 @@
     // History of all drawing actions (each is a track segment drawn in one mouse drag)
     let drawHistory = [];
 
-    // Process tracks to match ComfyUI's FIXED_LENGTH (121) and FPS conversion
+    // Interpolate coordinates between two points
+    function interpolatePoint(p1, p2, t) {
+      return {
+        x: Math.round((p1.x + (p2.x - p1.x) * t) * 100) / 100,
+        y: Math.round((p1.y + (p2.y - p1.y) * t) * 100) / 100
+      };
+    }
+
+    // Process tracks with custom frame count and proper interpolation
+    function processTracksForFrames(tracks, targetFrames) {
+      const processed = [];
+      
+      for (const track of tracks) {
+        if (track.length === 0) continue;
+        
+        // If track has only one point, repeat it for all frames
+        if (track.length === 1) {
+          const point = track[0];
+          const interpolatedTrack = [];
+          for (let i = 0; i < targetFrames; i++) {
+            interpolatedTrack.push({ 
+              x: Math.round(point.x * 100) / 100, 
+              y: Math.round(point.y * 100) / 100 
+            });
+          }
+          processed.push(interpolatedTrack);
+          continue;
+        }
+        
+        // Interpolate track across target frames
+        const interpolatedTrack = [];
+        const totalSegments = track.length - 1;
+        
+        for (let frame = 0; frame < targetFrames; frame++) {
+          const frameProgress = frame / (targetFrames - 1); // 0 to 1
+          const segmentProgress = frameProgress * totalSegments;
+          const segmentIndex = Math.floor(segmentProgress);
+          const segmentT = segmentProgress - segmentIndex;
+          
+          // Handle edge cases
+          if (segmentIndex >= totalSegments) {
+            // Last frame - use the last point
+            interpolatedTrack.push({
+              x: Math.round(track[track.length - 1].x * 100) / 100,
+              y: Math.round(track[track.length - 1].y * 100) / 100
+            });
+          } else {
+            // Interpolate between two points
+            const p1 = track[segmentIndex];
+            const p2 = track[segmentIndex + 1];
+            const interpolatedPoint = interpolatePoint(p1, p2, segmentT);
+            interpolatedTrack.push(interpolatedPoint);
+          }
+        }
+        
+        processed.push(interpolatedTrack);
+      }
+      
+      return processed;
+    }
+
+    // Legacy function for backward compatibility
     function processTracksForFPS(tracks, targetFPS) {
       const FIXED_LENGTH = 121;
       const processed = [];
@@ -508,14 +563,14 @@
         for (let i = 0; i < FIXED_LENGTH; i++) {
           if (i < track.length) {
             paddedTrack.push({
-              x: track[i].x,
-              y: track[i].y
+              x: Math.round(track[i].x * 100) / 100,
+              y: Math.round(track[i].y * 100) / 100
             });
           } else {
             // Pad with last point
             paddedTrack.push({
-              x: track[track.length - 1].x,
-              y: track[track.length - 1].y
+              x: Math.round(track[track.length - 1].x * 100) / 100,
+              y: Math.round(track[track.length - 1].y * 100) / 100
             });
           }
         }
@@ -525,28 +580,15 @@
       return processed;
     }
 
-    // Calculate effective frame count based on FPS (matching ComfyUI's logic)
-    function calculateFrameCount(targetFPS) {
-      // ComfyUI uses 120 base frames for interpolation calculation
-      // This matches the logic in process_tracks: a = 120 // gcd(120, num_frames)
-      const baseFrames = 120;
-      const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
-      const frameGCD = gcd(baseFrames, targetFPS);
-      return {
-        targetFrames: targetFPS,
-        interpolationRatio: baseFrames / frameGCD,
-        outputFrames: targetFPS / frameGCD
-      };
-    }
+
 
     // Update JSON panel with different view modes
     function updateJsonPanel() {
       let tracks = allTracks.slice();
       if (currentTrack.length > 0) tracks.push(currentTrack);
       
-      const targetFPS = parseInt(fpsSelect.value);
-      const frameInfo = calculateFrameCount(targetFPS);
-      const processedTracks = processTracksForFPS(tracks, targetFPS);
+      const targetFrames = parseInt(frameCountInput.value) || 81;
+      const processedTracks = processTracksForFrames(tracks, targetFrames);
       const viewMode = jsonModeSelect.value;
       
       let displayData;
@@ -557,16 +599,15 @@
         // Full mode: show complete metadata
         displayData = {
           tracks: processedTracks,
-          fps: targetFPS,
-          frameInfo: frameInfo,
+          frameCount: targetFrames,
           canvasSize: {
-            width: parseInt(inputWidth.value) || 720,
-            height: parseInt(inputHeight.value) || 480
+            width: parseInt(inputWidth.value) || 2048,
+            height: parseInt(inputHeight.value) || 1024
           },
           metadata: {
-            fixedLength: 121,
+            frameCount: targetFrames,
             viewMode: viewMode,
-            toolVersion: "1.1.0"
+            toolVersion: "1.3.0"
           }
         };
       }
@@ -707,8 +748,8 @@
 
     // When user changes width/height, resize canvas and redraw image/track
     function updateCanvasSizeAndRedraw() {
-      const w = parseInt(inputWidth.value) || 720;
-      const h = parseInt(inputHeight.value) || 480;
+      const w = parseInt(inputWidth.value) || 2048;
+      const h = parseInt(inputHeight.value) || 1024;
       canvas.width = w;
       canvas.height = h;
       redraw();
@@ -718,8 +759,8 @@
     inputWidth.addEventListener('change', updateCanvasSizeAndRedraw);
     inputHeight.addEventListener('change', updateCanvasSizeAndRedraw);
     
-    // FPS selection
-    fpsSelect.addEventListener('change', () => {
+    // Frame count input
+    frameCountInput.addEventListener('change', () => {
       updateJsonPanel();
     });
     
@@ -1123,8 +1164,8 @@
         img = new window.Image();
         img.onload = function() {
           // Set canvas to target size
-          const w = parseInt(inputWidth.value) || 720;
-          const h = parseInt(inputHeight.value) || 480;
+          const w = parseInt(inputWidth.value) || 2048;
+          const h = parseInt(inputHeight.value) || 1024;
           canvas.width = w;
           canvas.height = h;
           redraw();
