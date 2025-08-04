@@ -492,8 +492,8 @@
     // Interpolate coordinates between two points
     function interpolatePoint(p1, p2, t) {
       return {
-        x: Math.round((p1.x + (p2.x - p1.x) * t) * 100) / 100,
-        y: Math.round((p1.y + (p2.y - p1.y) * t) * 100) / 100
+        x: Math.round(p1.x + (p2.x - p1.x) * t),
+        y: Math.round(p1.y + (p2.y - p1.y) * t)
       };
     }
 
@@ -510,8 +510,8 @@
           const interpolatedTrack = [];
           for (let i = 0; i < targetFrames; i++) {
             interpolatedTrack.push({ 
-              x: Math.round(point.x * 100) / 100, 
-              y: Math.round(point.y * 100) / 100 
+              x: Math.round(point.x), 
+              y: Math.round(point.y) 
             });
           }
           processed.push(interpolatedTrack);
@@ -532,8 +532,8 @@
           if (segmentIndex >= totalSegments) {
             // Last frame - use the last point
             interpolatedTrack.push({
-              x: Math.round(track[track.length - 1].x * 100) / 100,
-              y: Math.round(track[track.length - 1].y * 100) / 100
+              x: Math.round(track[track.length - 1].x),
+              y: Math.round(track[track.length - 1].y)
             });
           } else {
             // Interpolate between two points
@@ -563,14 +563,14 @@
         for (let i = 0; i < FIXED_LENGTH; i++) {
           if (i < track.length) {
             paddedTrack.push({
-              x: Math.round(track[i].x * 100) / 100,
-              y: Math.round(track[i].y * 100) / 100
+              x: Math.round(track[i].x),
+              y: Math.round(track[i].y)
             });
           } else {
             // Pad with last point
             paddedTrack.push({
-              x: Math.round(track[track.length - 1].x * 100) / 100,
-              y: Math.round(track[track.length - 1].y * 100) / 100
+              x: Math.round(track[track.length - 1].x),
+              y: Math.round(track[track.length - 1].y)
             });
           }
         }
